@@ -6,4 +6,5 @@
 (defun clear-db (&optional (db '*default-db*))
   (clrhash db))
 
-()
+(defmacro db-query (key &optional (db '*default-db*))
+  `(gethash ,key ,db))
