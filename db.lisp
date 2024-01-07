@@ -228,13 +228,32 @@ for that record"
                          ,else))))
                (t `(if (equal ,pat ,expr) ,then ,else)))))
 
-(defmacro gen-match (refs then else)
+(defun gen-match (refs then else)
   (if (null refs)
       then
       (let ((then (gen-match (cdr refs) then else)))
         (if (simple? (caar refs))
             (match1 refs then else)
             (gen-match (car refs) then else)))))
+
+(defun destruc (pat seq &optional (atom? #'atom) (n 0))
+  (if (null pat)
+      nil
+      (let ((rest (cond ((funcall atom? pat) pat)
+                        ((eq (car pat) '&rest) (cadr pat))
+                        ((eq (car pat) '&body) (cadr pat))
+                        (t nil))))
+        (if rest
+            `((,rest (subseq ,seq ,n)))
+            (let ((p (car pat))
+                  (rec (destruc (cdr pat) seq atom? (1+ n))))
+              (if (funcall atom? p)
+                  (cons `(,p (elt ,seq ,n))
+                        rec)
+                  (let ((var (gensym)))
+                    (cons (cons `(,var (elt ,seq ,n))
+                                (destruc p var atom?))
+                          rec))))))))
 
 (defmacro pat-match (pat seq then else)
   (if (simple? pat)
@@ -313,3 +332,6 @@ for that record"
 
 (with-interpreted-answer (painter hogarth ?x ?y)
   (princ (list ?x ?y)))
+
+(with-compiled-answer (painter ?x ?y ?z)
+  (format t "~A ~A is a painter.~%" ?y ?x))
