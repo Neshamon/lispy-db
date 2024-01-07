@@ -193,6 +193,16 @@ for that record"
    (t (values nil nil))))
 
 ;;; Matching & Lookup (Compiled)
+;; The previous implementation of with-answer is okay but there are inefficiencies that can
+;; be imporved upon. One main ineffiency is that the DB is analyzed at runtime
+;; when it is already known at compile time. And it conses up lists to hold variable
+;; bindings, which can significantly ruin the performance of a program
+
+;; This new version of with-answer focuses on eliminating those two problems &
+;; shifting the majority of the work to compile time rather than runtime.
+;; The subsequent functions do this by generating code with macro expansions
+;; rather than generating bindings at runtime
+
 
 (defmacro with-gensyms (syms &body body)
   `(let ,(mapcar #'(lambda (s)
