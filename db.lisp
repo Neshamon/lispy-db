@@ -7,7 +7,7 @@
 
 (defvar *default-db* (make-db))
 
-(defun clear-db (&optional (db '*default-db*))
+(defun clear-db (&optional (db *default-db*))
   (clrhash db))
 
 (defmacro db-query (key &optional (db '*default-db*))
@@ -17,13 +17,19 @@
   (push val (db-query key db)))
 
 (defmacro fact (pred &rest args)
-  "Adds a new fact to the db"
+  "Adds a record to the db. The first arg is the category
+or data type of the record, the second is all relevant information
+for that record"
   `(progn (db-push ',pred ',args)
           ',args))
 
 (defmacro with-answer (query &body body)
   (let ((binds (gensym)))
-    `(dolist (,binds (interpret-query ',query)))))
+    `(dolist (,binds (interpret-query ',query))
+       (let ,(mapcar #'(lambda (v)
+                         `(,v (binding ',v ,binds)))
+                     (vars-in query #'atom))
+         ,@body))))
 
 (defun interpret-query (expr &optional binds)
   (case (car expr)
@@ -44,7 +50,7 @@
               (interpret-query c binds))
           clauses))
 
-(defun interpret-not ()
+(defun interpret-not (clause binds)
   (if (interpret-query clause binds)
       nil
       (list binds)))
@@ -53,6 +59,8 @@
   (mapcan #'(lambda (x)
               (aif2 (match x args binds) (list it)))
           (db-query pred)))
+
+(macroexpand '(aif2 (match (values *default-db*) ?x ?y english nil) (list it)))
 
 (defmacro aif2 (test &optional then else)
   "Anaphoric if. This version creates a context using a built in let and assigns
@@ -115,10 +123,10 @@ and grouping it into lengths of, n"
       (let ((cl1 (car clauses))
             (val (gensym))
             (win (gensym)))
-        `(mvbind (,val ,win) ,(car cl1)
-                 (if (or ,val ,win)
-                     (let ((it ,val)) ,@(cdr cl1))
-                     (acond2 ,@(cdr clauses)))))))
+        `(multiple-value-bind (,val ,win) ,(car cl1)
+           (if (or ,val ,win)
+               (let ((it ,val)) ,@(cdr cl1))
+               (acond2 ,@(cdr clauses)))))))
 
 (defmacro defanaph (name &optional &key calls (rule :all))
   "Defines anaphoric functions with three rules. Anaphora are good for utilizing variable capture.
@@ -172,7 +180,18 @@ bound to its value"
 
 (db-query 'painter) ;; Query for all painters
                                         ; => ((CANALE ANTONIO VENETIAN) (REYNOLDS JOSHUA ENGLISH))
-(lispy-lookup 'painter '(?x ?y english))
 
-(interpret-query '(and (painter ?x ?y ?z)
+(lispy-lookup 'painter '(?x ?y english)) ; => (((?Y . JOSHUA) (?X . REYNOLDS)))
+
+(interpret-query '(and
+                   (painter ?x ?y ?z)
                    (dates ?x 1697 ?w))) ;; A combinded query that looks for any painters from the year 1697
+
+(clear-db) ;; Clears the db
+
+(fact painter hogarth william english)
+(fact painter canale antonio venetian)
+(fact painter reynolds joshua english)
+(fact dates hogarth 1697 1772)
+(fact dates canale 1697 1768)
+(fact dates reynolds 1723 1792)
