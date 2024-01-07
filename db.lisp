@@ -63,7 +63,7 @@
 
 (defmacro abbrev (short long)
   `(defmacro ,short (&rest args)
-     `(,`,long ,@args)))
+     `(,',long ,@args)))
 
 (defmacro abbrevs (&rest names)
   "Macro that creates a macro with the functionality of the second name (eg. list) with the
@@ -88,11 +88,11 @@ and grouping it into lengths of, n"
   "Compares args element by element and accumulates values in binds.
  If a match is successful it returns generated bindings, otherwise nil."
   (acond2
-   ((or eql x y) (eql x '_) (eql y '_) (values binds t))
+   ((or (eql x y) (eql x '_) (eql y '_)) (values binds t))
    ((binding x binds) (match it y binds))
-   ((binding y binds) (match it x binds))
-   ((varsym? x) (values (cons (cons x y) binds)) t)
-   ((varsym? y) (values (cons (cons y x) binds)) t)
+   ((binding y binds) (match x it binds))
+   ((varsym? x) (values (cons (cons x y) binds) t))
+   ((varsym? y) (values (cons (cons y x) binds) t))
    ((and (consp x) (consp y) (match (car x) (car y) binds))
     (match (cdr x) (cdr y) it))
    (t (values nil nil))))
@@ -113,7 +113,7 @@ and grouping it into lengths of, n"
   (if (null clauses)
       nil
       (let ((cl1 (car clauses))
-            (val (gemsym))
+            (val (gensym))
             (win (gensym)))
         `(mvbind (,val ,win) ,(car cl1)
                  (if (or ,val ,win)
@@ -164,3 +164,15 @@ bound to its value"
     `(let* (,@(mapcar #'list vars forms)
             (,(car var) (,op ,access ,@args)))
        ,set)))
+
+(defanaph aif :rule :first)
+
+(fact painter reynolds joshua english) ;; Add the painter Joshua Reynolds
+(fact painter canale antonio venetian) ;; Add the painter Antonio Canale
+
+(db-query 'painter) ;; Query for all painters
+                                        ; => ((CANALE ANTONIO VENETIAN) (REYNOLDS JOSHUA ENGLISH))
+(lispy-lookup 'painter '(?x ?y english))
+
+(interpret-query '(and (painter ?x ?y ?z)
+                   (dates ?x 1697 ?w))) ;; A combinded query that looks for any painters from the year 1697
