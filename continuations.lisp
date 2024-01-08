@@ -105,8 +105,17 @@ bound to its value"
    =bind creates a new *cont* variable by binding it to a
    continuation. The continuation consists of the lambda list
    of parameters & the body of the function =bind was called on
-   The given expression is then called after the assigning of
-   the continuation."
+
+   The logic of the given expression is then called on the newly
+   created continuation.
+
+   It is advised that whenever passing an expression to =bind,
+   the expression should include be a continuation function,
+   otherwise the chain of continuations will be broken.
+
+   Acceptable functions are functions that either terminate by
+   returning values with =values, or by calling another function
+   that obeys this restriction. "
   `(let ((*cont* #'(lambda ,params ,@body)))
      ,expr))
 
@@ -292,8 +301,20 @@ interacted with in nearly all subsequent functions.
    is cont, which stands for continuation.
 
    The arbitrator function uses generalized variables by setting
-   the funcall of proc-state on *proc* to the given continuation, cont,
+   the funcall of proc-state on *proc* to the parameter, cont,
    and the funcall of proc-wait to the given predicate, test.
+   As noted within the proc struct docstring, in order for a
+   process to be restarted from a suspended state either
+   the proc-state function must be called or the proc-wait
+   function must evaluate to t.
+
+   When the expression (proc-state *proc*) or (proc-wait *proc*)
+   is evaluated we are effectively popping off the previous
+   continuation in a similar fashion as (restart-cont) which
+   is defined in the first section. We then assign the
+   evaluation of proc-state on
+
+   In a similar fashion as =bind,
 
    Arbitrator then adds the newly instantiated procs to the *procs*
    variable, which houses all suspended processes."
@@ -388,16 +409,6 @@ top level of Lisp.")
   "Checks to see if the params f is
    inside *bboard*"
   (find f *bboard* :test #'equal))
-
-(find '(a b c) '((a b c)) :test #'equal)
-(let ((test '()))
-  (push '(knock door2) test)
-  test)
-
-(lambda (d)
-  (format t "Enter ~A. " door)
-  (unclaim 'knock door)
-  (claim 'inside door))
 
 (=defun visitor (door)
         (format t "Approach ~A. " door)
