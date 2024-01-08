@@ -191,6 +191,7 @@ bound to its value"
 ;; as the continuation
 
 ;;;; Multiple Processes
+;; The functions below must be run in a Lisp repl
 
 (defstruct (proc pri state wait)
   "pri is the priority of each process
@@ -207,9 +208,25 @@ bound to its value"
 (defvar *procs*)
 (defvar *proc*) ; Did these need to be defined?
 
+#| As shown in the previous section of code with CPS programming,
+the variables *procs* & *procs* act as continuations and are
+interacted with in nearly all subsequent functions.
+
+|#
+
 (defvar *halt* (gensym))
 
 (defun arbitrator (test cont)
+  "Arbitrator is a function created in CPS style.
+   As you can see, the first parameter is test but the other
+   is cont, which stands for continuation.
+
+   The arbitrator function uses generalized variables by setting
+   the funcall of proc-state on *proc* to the given continuation, cont,
+   and the funcall of proc-wait to the given predicate, test.
+
+   Arbitrator then adds the newly instantiated procs to the *procs*
+   variable, which houses all suspended processes."
   (setf (proc-state *proc*) cont
         (proc-wait *proc*) test)
   (push *proc* *procs*)
@@ -231,13 +248,26 @@ bound to its value"
     (values proc1 val1)))
 
 (defun pick-process ()
+  "As noted earlier, a process can be brought out
+   of suspension when either the proc-state
+   continuation is called or the proc-wait symbol
+   returns t.
+
+   Pick-process calls the continuation proc-state
+   to activate the process on the variable p
+   & removes p from *procs* to show that this new
+   process has been activated.
+   Sorting through processes with the highest
+   proc-pri is relegated to most-urgent-process."
   (multiple-value-bind (p val) (most-urgent-process)
     (setq *proc* p
           *procs* (delete p *procs*))
     (funcall (proc-state p) val)))
 
 (defmacro wait (param test &body body)
-  "Wait is similar to =bind"
+  "The wait macro takes the arbitrator function and
+   abstracts it by allowing it to be given any arbitrary test
+   and list of params to act on the variable body"
   `(arbitrator #'(lambda () ,test)
                #'(lambda (,param) ,@body)))
 
@@ -261,7 +291,7 @@ bound to its value"
 
 (=defun pedestrian ()
   (wait d (car *open-doors*)
-        (format t "Entering ~A~%" d)))
+    (format t "Entering ~A~%. " d)))
 
 (defmacro fork (expr pri)
   "Instantiates a process from a function call"
@@ -274,6 +304,8 @@ bound to its value"
            *procs*)))
 
 (defmacro program (name args &body body)
+  "Programs defined by this macro must be called
+   only from the toplevel, aka within a Lisp env / repl"
   `(=defun ,name ,args
      (setq *procs* nil)
      ,@body
@@ -285,7 +317,7 @@ bound to its value"
                         (princ (eval (read)))
                         (pick-process)))
   "This process runs only when no other processes can. Similar to the
-   top level of Lisp.")
+top level of Lisp.")
 
 (program ped ()
   (fork (pedestrian) 1))
