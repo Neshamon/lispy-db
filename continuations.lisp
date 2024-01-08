@@ -1,3 +1,52 @@
+;;; Anaphora
+
+(defun pop-symbol (sym)
+  (intern (subseq (symbol-name sym) 1)))
+
+(defmacro defanaph (name &optional &key calls (rule :all))
+  "Defines anaphoric functions with three rules. Anaphora are good for utilizing variable capture.
+The rule :all evaluates all args in a macro, and assigns always 'it' to the previous argument.
+The rule :first only evaluates the first arg, and 'it' will be bound to its value.
+The rule :place treats the first arg as a generalized variable, and 'it' will be bount its value."
+  (let* ((opname (or calls (pop-symbol name)))
+         (body (case rule
+                 (:all `(anaphex1 args '(,opname)))
+                 (:first `(anaphex2 ',opname args))
+                 (:place `(anaphex3 ',opname args)))))
+    `(defmacro ,name (&rest args)
+       ,body)))
+
+(defun anaphex1(args call)
+  "All args in the macro call will be evaluated, with 'it' always
+bound to the value of the previous argument"
+  (if args
+      (let ((sym (gensym)))
+        `(let* ((,sym ,(car args))
+                (it ,sym))
+           ,(anaphex1 (cdr args)
+                      (append call (list sym)))))
+      call))
+
+(defun anaphex2 (op args)
+  "Only the first arg will be evaluated, and 'it' will be
+bound to its value"
+  `(let ((it ,(car args)))
+     (,op it ,@(cdr args))))
+
+(defun anaphex3 (op args)
+  "The first argument will be treated as a generalized variable,
+ and 'it' will be bound to its value"
+  `(_f (lambda (it) (,op it ,@(cdr args))) ,(car args)))
+
+(defmacro _f (op place &rest args)
+  "Applies a function !destructively! to a generalized variable."
+  (multiple-value-bind (vars forms var set access) (get-setf-expansion place)
+    `(let* (,@(mapcar #'list vars forms)
+            (,(car var) (,op ,access ,@args)))
+       ,set)))
+
+(defanaph asetf :rule :place)
+
 ;;; Continuations
 ;; Continuations are a programming concept originating from
 ;; Scheme, and they are essentially programs frozen in action.
@@ -140,3 +189,140 @@
 ;; During the first recursion, the continuation will be identity.
 ;; The subsequent recursions will have #'(lambda (w) identity (append w (list (car x))))
 ;; as the continuation
+
+;;;; Multiple Processes
+
+(defstruct (proc pri state wait)
+  "pri is the priority of each process
+
+   state is a continuation representing the state of a suspended process.
+   A suspended process can be restarted by funcalling the state.
+
+   wait is a function which must return true for the process to be restarted.
+   Initially the wait of a new process is nil, but a process with a null wait
+   can still be restarted.")
+
+(proclaim '(special *procs* *proc*)) ; Does special define procs and proc for me?
+
+(defvar *procs*)
+(defvar *proc*) ; Did these need to be defined?
+
+(defvar *halt* (gensym))
+
+(defun arbitrator (test cont)
+  (setf (proc-state *proc*) cont
+        (proc-wait *proc*) test)
+  (push *proc* *procs*)
+  (pick-process))
+
+(defun most-urgent-process ()
+  (let ((proc1 *default-proc*)
+        (max -1)
+        (val1 t))
+    (dolist (p *procs*)
+      (let ((pri (proc-pri p)))
+        (if (> pri max)
+            (let ((val (or (not (proc-wait p))
+                           (funcall (proc-wait p)))))
+              (when val
+                (setq proc1 p
+                      max pri
+                      val1 val))))))
+    (values proc1 val1)))
+
+(defun pick-process ()
+  (multiple-value-bind (p val) (most-urgent-process)
+    (setq *proc* p
+          *procs* (delete p *procs*))
+    (funcall (proc-state p) val)))
+
+(defmacro wait (param test &body body)
+  "Wait is similar to =bind"
+  `(arbitrator #'(lambda () ,test)
+               #'(lambda (,param) ,@body)))
+
+(defmacro yield (&body body)
+  "Similar to wait. This macro gives processes with higher priority
+   a chance to run."
+  `(arbitrator nil #'(lambda (,(gensym)) ,@body)))
+
+(defun setpri (n)
+  (setf (proc-pri *proc*) n))
+
+(defun halt (&optional val)
+  (throw *halt* val))
+
+(defun kill (&optional obj &rest args)
+  (if obj
+      (setq *procs* (apply #'delete obj *procs* args))
+      (pick-process)))
+
+(defvar *open-doors* nil)
+
+(=defun pedestrian ()
+  (wait d (car *open-doors*)
+        (format t "Entering ~A~%" d)))
+
+(defmacro fork (expr pri)
+  "Instantiates a process from a function call"
+  `(prog1 ',expr
+     (push (make-proc
+            :state #'(lambda (,(gensym))
+                       ,expr
+                       (pick-process))
+            :pri ,pri)
+           *procs*)))
+
+(defmacro program (name args &body body)
+  `(=defun ,name ,args
+     (setq *procs* nil)
+     ,@body
+     (catch *halt* (loop (pick-process)))))
+
+(defvar *default-proc*
+  (make-proc :state #'(lambda (x)
+                        (format t "~%>> ")
+                        (princ (eval (read)))
+                        (pick-process)))
+  "This process runs only when no other processes can. Similar to the
+   top level of Lisp.")
+
+(program ped ()
+  (fork (pedestrian) 1))
+
+(=defun foo (x)
+  (format t "Foo was called with ~A.~%" x)
+  (=values (1+ x)))
+
+(defmacro pull (obj place &rest args)
+  `(asetf ,place (delete ,obj it ,@args)))
+
+(defvar *bboard* nil)
+
+(defun claim (&rest f) (push f *bboard*))
+
+(defun unclaim (&rest f) (pull f *bboard* :test #'equal))
+
+(defun check (&rest f) (find f *bboard* :test #'equal))
+
+(=defun visitor (door)
+  (format t "Approach ~A. " door)
+  (claim 'knock door)
+  (wait d (check 'open door)
+    (format t "Enter ~A. " door)
+    (unclaim 'knock door)
+    (claim 'inside door)))
+
+(=defun host (door)
+  (wait k (check 'knock door)
+    (format t "Open ~A. " door)
+    (claim 'open door)
+    (wait g (check 'inside door)
+      (format t "Close ~A.~%" door)
+      (unclaim 'open door))))
+
+(program ballet ()
+  (fork (visitor 'door1) 1)
+  (fork (host 'door1) 1)
+  (fork (visitor 'door2) 1)
+  (fork (host 'door2) 1))
