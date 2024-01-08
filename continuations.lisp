@@ -55,6 +55,8 @@
   (if *saved*
       (funcall (pop *saved*))
       (=values 'done)))
+;; The function, restart-cont simply pops the most recently saved continuation
+;; and calls it.
 
 (=defun dft-node (tree)
   (cond ((null tree) (restart-cont))
@@ -62,6 +64,8 @@
         (t (push #'(lambda () (dft-node (cdr tree)))
                  *saved*)
            (dft-node (car tree)))))
+;; The function, dft-node traverses an entire tree but pushes each node to
+;; the variable *saved*, which acts as a continuation.
 
 (=defun dft2 (tree)
   (setq *saved* nil)
@@ -69,6 +73,12 @@
     (cond ((eq node 'done) (=values nil))
           (t (princ node)
              (restart-cont)))))
+;; dft2 combines dft-node and restart-cont together.
+
+;; With continuations there is no need for explicit iteration or recursion
+;; because the continuations invoked by restart-cont always return
+;; through the same cond clause in dft-node. So long as the value, 'done',
+;; isn't returned, restart-cont will continue to go down the subsequent stack calls.
 
 ;;; Small Demo
 
@@ -78,7 +88,23 @@
 (dft2 t1) ; => ABDHCEFIG
 (dft2 t2) ; => 1236745
 
-(restart-cont)
+;; The below function binds the previously created lists, t1 & t2, to the variables node1 & node2.
+;; Then node1 & node2 are paired in a list
+
+(=bind (node1) (dft-node t1)
+  (if (eq node1 'done) ; Error checking?
+      'done
+      (=bind (node2) (dft-node t2)
+        (list node1 node2)))) ; => (A 1)
+
+;; As restart-cont is called, the trees are traversed
+(atom t1)
+(restart-cont) ; => (A 2)
+(restart-cont) ; => (A 3)
+(restart-cont) ; => (A 6)
+;; ...
+(restart-cont) ; => (B 1)
+;; And so on...
 
 ;;; Continuation Passing Style (CPS)
 ;; In the same way as the previous continuation functions needed *cont* or *saved*
