@@ -67,6 +67,24 @@ bound to its value"
 
 (setq *cont* #'identity)
 
+;; At the toplevel, the value of *cont* is identity, as you can see.
+;; Identity returns whatever is passed to it in the fashion of a self
+;; evaluating atom.
+
+;; By manipulating *cont* we can get the effect of continuations.
+;; Though *cont* has a global value, it is rarely the one to be used;
+;; *cont* will 99% of the time be a parameter passed through continuation
+;; macros.
+
+;; This is important to understand because if *cont* were not a local variable,
+;; none of these continuation macros would work. This is why *cont*
+;; is defined with a setq rather than a defvar, which would give *cont* a
+;; special status as well.
+
+;; Knowing these things, it is important to remember that anywhere a continuation
+;; function is defined, as we will see further down this file, *cont* is
+;; going to be utilized under the hood.
+
 (defmacro =lambda (params &body body)
   `#'(lambda (*cont* ,@params) ,@body))
 
@@ -79,10 +97,30 @@ bound to its value"
        (defun ,f (*cont* ,@params) ,@body))))
 
 (defmacro =bind (params expr &body body)
+  "=bind is used like multiple-value-bind in that it takes
+   a list of parameters, an expression, and a body of code.
+   The parameters are bound to the values returned by the
+   expression, and the body is evaluated with those bindings.
+
+   =bind creates a new *cont* variable by binding it to a
+   continuation. The continuation consists of the lambda list
+   of parameters & the body of the function =bind was called on
+   The given expression is then called after the assigning of
+   the continuation."
   `(let ((*cont* #'(lambda ,params ,@body)))
      ,expr))
 
 (defmacro =values (&rest retvals)
+  "=values is similar to values;
+   It can return multiple values if
+   there is a =bind with the same
+   number of arguments waiting for them
+   but can't return mutliple values to the
+   toplevel.
+
+   When =values is expanded it will capture
+   *cont*, and use it to simulate returning
+   from the function."
   `(funcall *cont* ,@retvals))
 
 (defmacro =funcall (fn &rest args)
@@ -216,22 +254,6 @@ interacted with in nearly all subsequent functions.
 
 (defvar *halt* (gensym))
 
-(defun arbitrator (test cont)
-  "Arbitrator is a function created in CPS style.
-   As you can see, the first parameter is test but the other
-   is cont, which stands for continuation.
-
-   The arbitrator function uses generalized variables by setting
-   the funcall of proc-state on *proc* to the given continuation, cont,
-   and the funcall of proc-wait to the given predicate, test.
-
-   Arbitrator then adds the newly instantiated procs to the *procs*
-   variable, which houses all suspended processes."
-  (setf (proc-state *proc*) cont
-        (proc-wait *proc*) test)
-  (push *proc* *procs*)
-  (pick-process))
-
 (defun most-urgent-process ()
   (let ((proc1 *default-proc*)
         (max -1)
@@ -263,6 +285,22 @@ interacted with in nearly all subsequent functions.
     (setq *proc* p
           *procs* (delete p *procs*))
     (funcall (proc-state p) val)))
+
+(defun arbitrator (test cont)
+  "Arbitrator is a function created in CPS style.
+   As you can see, the first parameter is test but the other
+   is cont, which stands for continuation.
+
+   The arbitrator function uses generalized variables by setting
+   the funcall of proc-state on *proc* to the given continuation, cont,
+   and the funcall of proc-wait to the given predicate, test.
+
+   Arbitrator then adds the newly instantiated procs to the *procs*
+   variable, which houses all suspended processes."
+  (setf (proc-state *proc*) cont
+        (proc-wait *proc*) test)        ; Is test itself a continuation?
+  (push *proc* *procs*)
+  (pick-process))
 
 (defmacro wait (param test &body body)
   "The wait macro takes the arbitrator function and
@@ -319,6 +357,8 @@ interacted with in nearly all subsequent functions.
   "This process runs only when no other processes can. Similar to the
 top level of Lisp.")
 
+;;; Demo
+
 (program ped ()
   (fork (pedestrian) 1))
 
@@ -329,32 +369,116 @@ top level of Lisp.")
 (defmacro pull (obj place &rest args)
   `(asetf ,place (delete ,obj it ,@args)))
 
-(defvar *bboard* nil)
+(defvar *bboard* nil
+  "Bboard is the mechanism through which the function arbitrator
+   facilitates which continuation gets the priority of going first
+   without assessing the assigned priority, proc-pri.")
 
-(defun claim (&rest f) (push f *bboard*))
+(defun claim (&rest f)
+  "Appends the params,
+   f to *bboard*"
+  (push f *bboard*))
 
-(defun unclaim (&rest f) (pull f *bboard* :test #'equal))
+(defun unclaim (&rest f)
+  "Removes the params f from
+   *bboard*"
+  (pull f *bboard* :test #'equal))
 
-(defun check (&rest f) (find f *bboard* :test #'equal))
+(defun check (&rest f)
+  "Checks to see if the params f is
+   inside *bboard*"
+  (find f *bboard* :test #'equal))
+
+(find '(a b c) '((a b c)) :test #'equal)
+(let ((test '()))
+  (push '(knock door2) test)
+  test)
+
+(lambda (d)
+  (format t "Enter ~A. " door)
+  (unclaim 'knock door)
+  (claim 'inside door))
 
 (=defun visitor (door)
-  (format t "Approach ~A. " door)
-  (claim 'knock door)
-  (wait d (check 'open door)
-    (format t "Enter ~A. " door)
-    (unclaim 'knock door)
-    (claim 'inside door)))
+        (format t "Approach ~A. " door)
+        (claim 'knock door)
+        (wait d (check 'open door) ; Is d a continuation of (claim 'knock door)?
+              (format t "Enter ~A. " door)
+              (unclaim 'knock door)
+              (claim 'inside door)))
 
 (=defun host (door)
-  (wait k (check 'knock door)
-    (format t "Open ~A. " door)
-    (claim 'open door)
-    (wait g (check 'inside door)
-      (format t "Close ~A.~%" door)
-      (unclaim 'open door))))
+        (wait k (check 'knock door)
+              (format t "Open ~A. " door)
+              (claim 'open door)
+              (wait g (check 'inside door)
+                    (format t "Close ~A.~%" door)
+                    (unclaim 'open door))))
 
 (program ballet ()
   (fork (visitor 'door1) 1)
   (fork (host 'door1) 1)
   (fork (visitor 'door2) 1)
   (fork (host 'door2) 1))
+
+#| When running the program ballet you will see that each portion of
+the functions =host & =visitor are called harmoniously.
+
+The function wait enables the two functions =host & =visitor to work
+with each other. If you run the ballet function in a Lisp repl you should
+see that it returns:
+
+Approach DOOR2. Open DOOR2. Enter DOOR2. Close DOOR2.
+Approach DOOR1. Open DOOR1. Enter DOOR1. Close DOOR1.
+
+Which is very interesting, because if you look at the ballet program,
+DOOR2 should not be the first symbol to be returned if we follow the
+normal way of evaluating the program, but rather DOOR1 should be.
+
+The reason why DOOR2 comes first is precisely because of the wait macro,
+and the power of continuations at work.
+
+When visitor is run no matter what it will always print out,
+"Approach (var here)". Oddly enough this should be all the more
+justification for DOOR1 to be printed first. But due to the
+implicit nature of Lisp returning the last form of a body,
+we can begin to understand why DOOR1 is not printed first.
+
+The last form of the =visitor function has the wait macro
+at the car (head / zeroth index) of it. And if you know how
+function calls work within Lisp, the car of a list is 99% of the
+time a function name, thus Lisp will evaluate it as a function.
+Lisp saw that the wait macro had a test that needed to be passed
+before the body of wait (the list where wait's logic lives) could
+be run. And that test refers back to a previously defined function,
+check.
+
+The function check searches the variable *bboard* for the given param.
+Inside the context of =visitor, the wait macro was looking to see if
+the symbol 'open was inside of *bboard*. This simple test is both
+the constraint of the continuation in this program yet also its very
+power. Without this simple check the mechanism of continuation would
+fall apart.
+
+Due to the lack of 'open being inside of *bboard*, none of the code
+within the body of =visitor's wait macro will be run until this test
+is successfully passed.
+
+Given that the constraint of =visitor's wait not being met it is
+easy to think that =host's may not be met either. But this is
+the very moment at which we can finally understand why DOOR2
+was printed first instead of DOOR1.
+
+Right before the wait form was evaluated, we can see that the =visitor
+function adds the symbol 'knock to *bboard*. Though Lisp only returns
+the last form of a given function, it still evaluates all previous forms.
+Thus, though =visitor was frozen by an unmet constraint we can atleast
+know that 'knock was very likely to have been added to *bboard*
+by way of the function claim.
+
+Why is this important? This matters because if we look at =host's
+constraint on its wait macro, we can see that it's checking to see if
+the symbol 'knock is within *bboard*. And if we look into the body of
+=host's wait macro we can see
+
+|#
