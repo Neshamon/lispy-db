@@ -48,12 +48,12 @@ bound to its value"
 (defanaph asetf :rule :place)
 
 ;;; Continuations
-;; Continuations are a programming concept originating from
-;; Scheme, and they are essentially programs frozen in action.
-;; When a frozen object is evaluated the stored
-;; computation is restarted where it left off.
-;; Continuations manage this by using its own copy of the frozen
-;; stack and by ignoring the current stack.
+;; Continuations are functional objects that contain the frozen state
+;; of a computation & a programming concept originating from Scheme;
+;; They are essentially programs frozen in action.
+;; When a frozen object is evaluated, the stored computation is
+;; restarted where it left off. Continuations manage this by
+;; using its own copy of the frozen stack and by ignoring the current stack.
 ;; How continuations achieve this is by utilizing a function and
 ;; a pointer to the whole stack pending at the moment of creation.
 
@@ -61,7 +61,7 @@ bound to its value"
 ;; representing suspended processes in multiprocessing or representing nodes in a search
 ;; tree.
 
-;; To depict functions that are continuations we will prepend a function name with the
+;; To depict functions that have continuations we will prepend a function name with the
 ;; "=" symbol.
 
 
@@ -240,15 +240,18 @@ bound to its value"
 ;;;; Multiple Processes
 ;; The functions below must be run in a Lisp repl
 
-(defstruct (proc pri state wait)
-  "pri is the priority of each process
+(defstruct proc pri state wait)
 
-   state is a continuation representing the state of a suspended process.
-   A suspended process can be restarted by funcalling the state.
+#|
+pri is the priority of each process
 
-   wait is a function which must return true for the process to be restarted.
-   Initially the wait of a new process is nil, but a process with a null wait
-   can still be restarted.")
+state is a continuation representing the state of a suspended process.
+A suspended process can be restarted by funcalling the state.
+
+wait is a function which must return true for the process to be restarted.
+Initially the wait of a new process is nil, but a process with a null wait
+can still be restarted.
+|#
 
 (proclaim '(special *procs* *proc*)) ; Does special define procs and proc for me?
 
@@ -303,21 +306,28 @@ interacted with in nearly all subsequent functions.
    The arbitrator function uses generalized variables by setting
    the funcall of proc-state on *proc* to the parameter, cont,
    and the funcall of proc-wait to the given predicate, test.
-   As noted within the proc struct docstring, in order for a
-   process to be restarted from a suspended state either
-   the proc-state function must be called or the proc-wait
-   function must evaluate to t.
 
    When the expression (proc-state *proc*) or (proc-wait *proc*)
    is evaluated we are effectively popping off the previous
    continuation in a similar fashion as (restart-cont) which
    is defined in the first section. We then assign the
-   evaluation of proc-state on
+   evaluation of proc-state and proc-wait to the given
+   parameters, cont & test. When proc-state & proc-wait are
+   assigned to the given parameters, they are stored within the
+   proc structure.
 
-   In a similar fashion as =bind,
+   The proc structure is where the current continuation of a
+   process is stored. But before the continuation be stored,
+   the current proc is pushed into the *procs* object, which
+   is where all the suspended processes are stored.
 
-   Arbitrator then adds the newly instantiated procs to the *procs*
-   variable, which houses all suspended processes."
+   As noted within the proc struct docstring, in order
+   for a process to be restarted from a suspended
+   state either the proc-state function must be called or
+   the proc-wait function must evaluate to t.
+
+   This process takes place by way of the pick-process function
+   in the last form."
   (setf (proc-state *proc*) cont
         (proc-wait *proc*) test)        ; Is test itself a continuation?
   (push *proc* *procs*)
@@ -413,7 +423,7 @@ top level of Lisp.")
 (=defun visitor (door)
         (format t "Approach ~A. " door)
         (claim 'knock door)
-        (wait d (check 'open door) ; Is d a continuation of (claim 'knock door)?
+        (wait d (check 'open door)
               (format t "Enter ~A. " door)
               (unclaim 'knock door)
               (claim 'inside door)))
@@ -427,15 +437,15 @@ top level of Lisp.")
                     (unclaim 'open door))))
 
 (program ballet ()
-  (fork (visitor 'door1) 1)
-  (fork (host 'door1) 1)
-  (fork (visitor 'door2) 1)
-  (fork (host 'door2) 1))
+         (fork (visitor 'door1) 1)
+         (fork (host 'door1) 1)
+         (fork (visitor 'door2) 1)
+         (fork (host 'door2) 1))
 
 #| When running the program ballet you will see that each portion of
 the functions =host & =visitor are called harmoniously.
 
-The function wait enables the two functions =host & =visitor to work
+The macro wait enables the two functions =host & =visitor to work
 with each other. If you run the ballet function in a Lisp repl you should
 see that it returns:
 
@@ -449,11 +459,11 @@ normal way of evaluating the program, but rather DOOR1 should be.
 The reason why DOOR2 comes first is precisely because of the wait macro,
 and the power of continuations at work.
 
-When visitor is run no matter what it will always print out,
-"Approach (var here)". Oddly enough this should be all the more
-justification for DOOR1 to be printed first. But due to the
-implicit nature of Lisp returning the last form of a body,
-we can begin to understand why DOOR1 is not printed first.
+When visitor is run it will always print out, "Approach (var here)".
+Oddly enough this should be all the more justification for
+DOOR1 to be printed first. But due to the implicit nature of
+Lisp returning the last form, we can begin to understand
+why DOOR1 is not printed first.
 
 The last form of the =visitor function has the wait macro
 at the car (head / zeroth index) of it. And if you know how
@@ -464,7 +474,18 @@ before the body of wait (the list where wait's logic lives) could
 be run. And that test refers back to a previously defined function,
 check.
 
-The function check searches the variable *bboard* for the given param.
+Now we must remember the difference between macros and functions in
+Lisp. When you look at a function definition in any language, you
+can get a good gauge of what the function will do when evaluated.
+But one main difference between a macro and a function is, macros
+do not return values like functions do, or rather macros return
+more functions. We call this returning of functions a macroexpansion
+in Lisp.
+
+If we look at the definition of the wait macro, we can see that it uses
+the arbitrator function at its core.
+
+The function, check, searches the variable *bboard* for the given param.
 Inside the context of =visitor, the wait macro was looking to see if
 the symbol 'open was inside of *bboard*. This simple test is both
 the constraint of the continuation in this program yet also its very
