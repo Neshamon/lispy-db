@@ -267,6 +267,25 @@ interacted with in nearly all subsequent functions.
 (defvar *halt* (gensym))
 
 (defun most-urgent-process ()
+  "This function handles picking out the highest
+   priority process. most-urgent-process manages this
+   by iterating over every process in the *procs*
+   variable, and by applying the subsequent logic.
+
+   most-urgent-process first creates three
+   different variables locally, proc1, max, & val1.
+   most-urgent-process then stores the stored
+   priority, proc-pri, of the current process, p,
+   in a variable called, pri, then checks if pri
+   is greater than max, which represents the
+   current maximal priority.
+
+   If pri is greater than max, most-urgent-process
+   then performs another check. It starts by assigning
+   val to the evauluation of (not (proc-wait p))
+   or (funcall (proc-wait p)). Whichever of the
+   evaluations exist, will be the value of val.
+   "
   (let ((proc1 *default-proc*)
         (max -1)
         (val1 t))
@@ -288,7 +307,7 @@ interacted with in nearly all subsequent functions.
    returns t.
 
    Pick-process calls the continuation proc-state
-   to activate the process on the variable p
+   to activate the process on the variable, p,
    & removes p from *procs* to show that this new
    process has been activated.
    Sorting through processes with the highest
