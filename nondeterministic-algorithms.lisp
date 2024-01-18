@@ -57,10 +57,35 @@
 
 ;;; Nondeterministic Algorithms
 
-(defparameter *paths* nil)
-(defconstant failsym '@)
+#|
+
+These algorithms focus on making nondeterministic algorithms
+deterministic. This is done through the choose & fail operators
+With these operators we can guide a nondeterministic program
+down specific paths, thus enabling it to become deterministic.
+
+|#
+
+(defparameter *paths* nil
+  "The variable paths acts as a
+   store for contiuations.")
+(defconstant failsym '@
+  "The variable failsym acts as
+   the symbol returned when there
+   are no more available
+   continuations in the paths list")
 
 (defun fail ()
+  "The fail function checks if
+   there are elements in the
+   variable *paths*. If so,
+   fail will pop the first
+   continuation off of the
+   *paths* list and call the it.
+
+   If there are no more
+   continuations stored in *paths*,
+   fail will return failsym."
   (if *paths*
       (funcall (pop *paths*))
       failsym))
@@ -97,4 +122,4 @@
         `(the sum of ,n1 ,n2)
         (fail))))
 
-(parlor-trick 8)
+(parlor-trick 8) ; => (THE SUM OF 3 5)
