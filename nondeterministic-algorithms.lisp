@@ -69,6 +69,7 @@ down specific paths, thus enabling it to become deterministic.
 (defparameter *paths* nil
   "The variable paths acts as a
    store for contiuations.")
+
 (defconstant failsym '@
   "The variable failsym acts as
    the symbol returned when there
@@ -85,7 +86,8 @@ down specific paths, thus enabling it to become deterministic.
 
    If there are no more
    continuations stored in *paths*,
-   fail will return failsym."
+   fail will return the failure
+   symbol, failsym."
   (if *paths*
       (funcall (pop *paths*))
       failsym))
@@ -109,6 +111,11 @@ down specific paths, thus enabling it to become deterministic.
       (fail)))
 
 (defmacro choose-bind (var choices &body body)
+  "The macros choose-bind & choose essentially
+   do the same thing.
+
+   choose-bind operates by binding the chosen
+   symbol and evaluating the given body of code"
   `(cb #'(lambda (,var) ,@body) ,choices))
 
 (=defun two-numbers ()
